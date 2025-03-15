@@ -1,5 +1,5 @@
+import 'package:aiventures/features/adventure/widgets/full_screen_image_view.dart';
 import 'package:flutter/material.dart';
-import 'package:aiventures/core/models/story_message.dart';
 import 'package:aiventures/features/adventure/controllers/adventure_controller.dart';
 import 'package:aiventures/features/adventure/widgets/message_bubble.dart';
 import 'package:aiventures/features/adventure/widgets/story_image.dart';
@@ -54,6 +54,10 @@ class _AdventureScreenState extends State<AdventureScreen> {
     await _controller.processUserInput(userInput);
   }
   
+  void _handleChoiceSelected(String choice) async {
+    await _controller.processChoiceSelection(choice);
+  }
+  
   void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
@@ -82,9 +86,13 @@ class _AdventureScreenState extends State<AdventureScreen> {
       ),
       body: Column(
         children: [
-          // Story image at the top
-          if (_controller.currentImage.isNotEmpty)
-            StoryImage(imageId: _controller.currentImage),
+          // Story image at the top - only show if there's at least one image
+          if (_controller.currentImage.isNotEmpty && 
+              _controller.currentImage != 'fallback_image')
+            StoryImage(
+              imageId: _controller.currentImage,
+              onTap: () => _showFullScreenImage(context, _controller.currentImage),
+            ),
           
           // Chat messages
           Expanded(
@@ -94,7 +102,11 @@ class _AdventureScreenState extends State<AdventureScreen> {
               itemCount: _controller.messages.length,
               itemBuilder: (context, index) {
                 final message = _controller.messages[index];
-                return MessageBubble(message: message);
+                return MessageBubble(
+                  message: message,
+                  choices: message.choices,
+                  onChoiceSelected: !message.isUser ? _handleChoiceSelected : null,
+                );
               },
             ),
           ),
@@ -113,6 +125,14 @@ class _AdventureScreenState extends State<AdventureScreen> {
             onSend: _sendUserInput,
           ),
         ],
+      ),
+    );
+  }
+  
+  void _showFullScreenImage(BuildContext context, String imagePath) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => FullScreenImageView(imagePath: imagePath),
       ),
     );
   }

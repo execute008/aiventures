@@ -1,52 +1,139 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:aiventures/config/app_config.dart';
 import 'package:aiventures/core/models/story_message.dart';
 import 'package:aiventures/core/services/ai_service.dart';
+import 'package:firebase_vertexai/firebase_vertexai.dart';
+import 'package:path_provider/path_provider.dart';
 
 class GeminiService implements AIService {
-  // TODO: Add actual Gemini API integration
-  
   @override
-  Future<String> generateResponse(List<StoryMessage> conversationHistory, String userPrompt) async {
-    // Mock implementation until we integrate the actual API
-    await Future.delayed(const Duration(seconds: 1));
-    
-    // Simple response based on the user input
-    if (userPrompt.toLowerCase().contains('left')) {
-      return "You squeeze through the narrow passage on the left. "
-             "As you progress, the tunnel widens into a small chamber filled with "
-             "glowing crystals. Their light reveals ancient carvings on the walls, "
-             "depicting what appears to be a story of a powerful artifact. "
-             "The chamber has two exits - one leading deeper underground and another "
-             "that seems to slope upward. Which way do you go?";
-    } else if (userPrompt.toLowerCase().contains('right')) {
-      return "You venture into the wider tunnel on the right. "
-             "The darkness envelops you, but distant echoes suggest a large space ahead. "
-             "After walking for several minutes, you emerge into an enormous cavern with "
-             "a subterranean lake. The water glows with an ethereal blue light. "
-             "You notice a small boat moored at the shore and a narrow path that circles the lake. "
-             "What will you do?";
-    } else {
-      return "You consider your options carefully. The cave seems to respond to your thoughts, "
-             "the whispers growing louder. Something about this place feels magical, "
-             "as if it's testing you. Will you take the narrow passage to the left or "
-             "the wider tunnel to the right?";
+  Future<AIResponse> generateResponse(
+    List<StoryMessage> conversationHistory,
+    String userPrompt,
+  ) async {
+    try {
+      final model = FirebaseVertexAI.instance.generativeModel(
+        model: 'gemini-2.0-flash',
+        systemInstruction: Content.system(AppConfig.systemPrompt),
+        generationConfig: GenerationConfig(
+          responseMimeType: 'application/json',
+          responseSchema: Schema.object(
+            properties: {
+              'text': Schema.string(),
+              'choices': Schema.array(items: Schema.string()),
+              'imagePrompt': Schema.string(),
+            },
+          ),
+        ),
+      );
+
+      final List<Content> promptContents = [];
+
+      if (conversationHistory.isNotEmpty) {
+        promptContents.add(Content.text("--- CONVERSATION HISTORY ---"));
+
+        for (final message in conversationHistory) {
+          // Make sure we distinguish between player and AI clearly
+          final role = message.isUser ? "PLAYER" : "ADVENTURE_MASTER";
+          promptContents.add(Content.text("$role: ${message.content}"));
+        }
+
+        promptContents.add(Content.text("--- END OF HISTORY ---"));
+      }
+
+      // Add current user prompt
+      promptContents.add(Content.text("PLAYER: $userPrompt"));
+
+      promptContents.add(Content.text(
+        """
+        INSTRUCTIONS:
+        1. Respond as the adventure master, continuing the story based on the player's action.
+        2. Your response should be engaging and descriptive but not too long.
+        3. Stick to the JSON Schema provided for the response.:
+        {
+          "text": "Your response text here.",
+          "choices": ["Choice 1", "Choice 2", "Choice 3"],
+          "imagePrompt": "A vivid description of the scene or characters."
+        }
+        4. Make sure each choice is direct, actionable, and NO QUESTIONS in choices.
+        5. Vary the choices to give players interesting options.
+        6. The imagePrompt should vividly describe a scene that represents the current situation.
+        7. DO NOT include any text outside the JSON object.
+        """
+      ));
+
+      final response = (await model.generateContent(promptContents)).text;
+
+      if (response == null) {
+        throw Exception("Failed to generate response");
+      }
+
+      final data = json.decode(response);
+
+      if (data == null) {
+        throw Exception("Failed to decode response");
+      }
+
+      return AIResponse(
+        text: data['text'],
+        choices: List<String>.from(data['choices']),
+        imagePrompt: data['imagePrompt'],
+      );
+    } catch (e) {
+      print('Error: $e');
+      return AIResponse(
+        text:
+            "Something mysterious happened and the adventure couldn't continue. Let's try a different path.",
+        choices: [
+          "Try again",
+          "Start a new adventure",
+          "Explore another direction",
+        ],
+        imagePrompt: "A mysterious magical disturbance in a fantasy setting",
+      );
     }
   }
-  
+
   @override
-  Future<String> generateImage(String description) async {
-    // Mock implementation until we integrate the actual API
-    await Future.delayed(const Duration(seconds: 1));
-    
-    // In a real implementation, this would call Imagen API
-    // and return a URL to the generated image
-    if (description.toLowerCase().contains('crystal')) {
-      return "crystal_chamber";
-    } else if (description.toLowerCase().contains('lake')) {
-      return "cavern_lake";
-    } else if (description.toLowerCase().contains('fork')) {
-      return "cave_fork";
+  Future<String> generateImage(String prompt) async {
+    final model = FirebaseVertexAI.instance.imagenModel(
+      model: 'imagen-3.0-fast-generate-001',
+      generationConfig: ImagenGenerationConfig(
+        numberOfImages: 1,
+        aspectRatio: ImagenAspectRatio.landscape16x9,
+        imageFormat: ImagenFormat.jpeg(compressionQuality: 90),
+        addWatermark: false,
+      ),
+    );
+
+    final response = await model.generateImages(prompt);
+
+    // If fewer images were generated than were requested,
+    // then `filteredReason` will describe the reason they were filtered out
+    if (response.filteredReason != null) {
+      print('Images filtered: ${response.filteredReason}');
+    }
+
+    if (response.images.isNotEmpty) {
+      // Get the first generated image
+      final image = response.images.first;
+
+      // Save the image to local file system
+      final directory = await getApplicationDocumentsDirectory();
+      final filename = 'imagen_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final filePath = '${directory.path}/$filename';
+
+      // Create file and write bytes
+      final file = File(filePath);
+      await file.writeAsBytes(image.bytesBase64Encoded);
+
+      // Return the file path as image ID
+      return filePath;
     } else {
-      return "cave_entrance";
+      // If no image was generated, throw an exception
+      throw Exception('Failed to generate image');
     }
   }
 }
