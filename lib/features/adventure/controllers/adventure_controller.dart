@@ -32,7 +32,8 @@ class AdventureController extends ChangeNotifier {
       );
 
       // Generate initial image
-      final imagePrompt = "A mysterious cave entrance with glowing runes and symbols";
+      final imagePrompt =
+          "A mysterious cave entrance with glowing runes and symbols";
       final initialImagePath = await _generateAndUpdateImage(imagePrompt);
 
       // Get initial story prompt
@@ -47,21 +48,23 @@ class AdventureController extends ChangeNotifier {
         "Enter the cave cautiously",
         "Examine the symbols on the entrance",
         "Listen carefully to the whispers",
-        "Turn back and leave"
+        "Turn back and leave",
       ];
 
       // Add the AI's initial message with choices and image
       _addMessage(
-        content: initialPrompt, 
+        content: initialPrompt,
         isUser: false,
         choices: initialChoices,
         imagePrompt: imagePrompt,
         imagePath: initialImagePath, // Attach the initial image
       );
-
     } catch (e) {
       // Handle error
-      _addMessage(content: "Error starting adventure: ${e.toString()}", isUser: false);
+      _addMessage(
+        content: "Error starting adventure: ${e.toString()}",
+        isUser: false,
+      );
     } finally {
       _setLoading(false);
     }
@@ -94,27 +97,34 @@ class AdventureController extends ChangeNotifier {
         userInput,
       );
 
-      print(response.toString());
-
       String? generatedImagePath;
       
       // Generate new image if a prompt was provided
       if (response.imagePrompt != null && response.imagePrompt!.isNotEmpty) {
-        generatedImagePath = await _generateAndUpdateImage(response.imagePrompt!);
+        try {
+          generatedImagePath = await _generateAndUpdateImage(response.imagePrompt!);
+        } catch (imageError) {
+          print('Image generation caught an additional error: $imageError');
+          // Continue without an image
+        }
       }
 
       // Add AI response with any choices returned and the generated image
       _addMessage(
         content: response.text,
         isUser: false,
-        choices: response.choices,
+        choices: response.choices ?? [],
         imagePrompt: response.imagePrompt,
-        imagePath: generatedImagePath, // Attach image path to message
+        imagePath: generatedImagePath,
       );
 
     } catch (e) {
-      print(e);
-      _addMessage(content: "Sorry, I encountered an error. Please try again.", isUser: false);
+      print('Error generating AI response: $e');
+      _addMessage(
+        content: "Sorry, I encountered an error. Please try again.",
+        isUser: false,
+        choices: ["Try again", "Start a new adventure", "Explore another direction"],
+      );
     } finally {
       _setLoading(false);
     }
@@ -126,10 +136,9 @@ class AdventureController extends ChangeNotifier {
     try {
       final imageId = await _aiService.generateImage(imagePrompt);
       _gameState = _gameState.copyWith(currentImageId: imageId);
-      return imageId; // Return the image path for attaching to messages
-    } catch (e) {
-      print('Image generation error: $e');
-      // Use a fallback image ID that will display a placeholder
+      return imageId;
+    } catch (e, stack) {
+      print('Image generation error: $e\n$stack');
       _gameState = _gameState.copyWith(currentImageId: 'fallback_image');
       return null;
     } finally {
@@ -146,14 +155,15 @@ class AdventureController extends ChangeNotifier {
     String? imagePath,
   }) {
     final message = StoryMessage(
-      content: content, 
+      content: content,
       isUser: isUser,
       choices: choices,
       imagePrompt: imagePrompt,
       imagePath: imagePath,
     );
 
-    final updatedMessages = List<StoryMessage>.from(_gameState.messages)..add(message);
+    final updatedMessages = List<StoryMessage>.from(_gameState.messages)
+      ..add(message);
     _gameState = _gameState.copyWith(messages: updatedMessages);
     notifyListeners();
   }
